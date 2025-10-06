@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meteor Impact Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            max-width: 300px;
+        }
+        .legend {
+            margin-top: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .color-box {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+        }
+        #simulator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 320px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        #simulator h3 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+        }
+        .input-group {
+            margin-bottom: 12px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #222;
+            color: white;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        #results {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #555;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        #results h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+        }
+        #mitigation {
+            margin-top: 15px;
+            padding: 15px;
+            border-top: 2px solid #ff9800;
+            background: rgba(255, 152, 0, 0.1);
+            border-radius: 5px;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        #mitigation h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #simulateBtn {
+            width: 100%;
+            background: #ff5722;
+            padding: 12px;
+            font-size: 16px;
+            margin: 15px 0 0 0;
+        }
+        #simulateBtn:hover {
+            background: #e64a19;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3 style="margin: 0 0 10px 0;">Meteor Impact Monitor</h3>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="color-box" style="background: #ff0000;"></div>
+                <span>Severe Impact (>100m)</span>
+            </div>
+            <div class="legend-item">
+                <div class="color-box" style="background: #ffff00;"></div>
+                <span>Mid-sized (20-100m)</span>
+            </div>
+            <div class="legend-item">
+                <div class="color-box" style="background: #00ff00;"></div>
+                <span>Minor (<20m)</span>
+            </div>
+        </div>
+        <p style="margin-top: 15px; font-size: 12px;">
+            Total Impacts: <span id="count">0</span>
+        </p>
+    </div>
+
+    <div id="controls">
+        <button onclick="addRandomImpact()">Add Random Impact</button>
+        <button onclick="clearImpacts()">Clear All</button>
+        <button onclick="simulateShower()">Meteor Shower</button>
+    </div>
+
+    <div id="simulator">
+        <h3>Meteor Impact Simulator</h3>
+        
+        <div class="input-group">
+            <label>Diameter (m):</label>
+            <input type="number" id="diameter" value="50" min="1">
+        </div>
+        
+        <div class="input-group">
+            <label>Velocity (km/s):</label>
+            <input type="number" id="velocity" value="20" min="1">
+        </div>
+        
+        <div class="input-group">
+            <label>Distance from Earth (km):</label>
+            <input type="number" id="distance" value="1000000" min="0">
+        </div>
+        
+        <div class="input-group">
+            <label>Latitude (-90 to 90):</label>
+            <input type="number" id="latitude" value="40.7" min="-90" max="90" step="0.1">
+        </div>
+        
+        <div class="input-group">
+            <label>Longitude (-180 to 180):</label>
+            <input type="number" id="longitude" value="-74" min="-180" max="180" step="0.1">
+        </div>
+        
+        <button id="simulateBtn" onclick="simulateCustomImpact()">Simulate Impact</button>
+        
+        <div id="results"></div>
+        <div id="mitigation"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let impacts = [];
+        let rotation = 0;
+        let targetRotation = 0;
+        let isRotating = false;
+        let stopRotation = false;
+        
+        const MAJOR_CITIES = {
+            "New York, USA": [40.7128, -74.0060],
+            "Los Angeles, USA": [34.0522, -118.2437],
+            "Chicago, USA": [41.8781, -87.6298],
+            "London, UK": [51.5074, -0.1278],
+            "Paris, France": [48.8566, 2.3522],
+            "Tokyo, Japan": [35.6762, 139.6503],
+            "Beijing, China": [39.9042, 116.4074],
+            "Mumbai, India": [19.0760, 72.8777],
+            "Sydney, Australia": [-33.8688, 151.2093],
+            "Cairo, Egypt": [30.0444, 31.2357],
+            "Moscow, Russia": [55.7558, 37.6173],
+            "Mexico City, Mexico": [19.4326, -99.1332],
+            "Sao Paulo, Brazil": [-23.5505, -46.6333],
+            "Dubai, UAE": [25.2048, 55.2708],
+            "Singapore": [1.3521, 103.8198]
+        };
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+        
+        function findNearestCity(lat, lon) {
+            let minDistance = Infinity;
+            let nearest = "Unknown location";
+            
+            for (const [city, [cityLat, cityLon]] of Object.entries(MAJOR_CITIES)) {
+                const R = 6371;
+                const dLat = (cityLat - lat) * Math.PI / 180;
+                const dLon = (cityLon - lon) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                         Math.cos(lat * Math.PI / 180) * Math.cos(cityLat * Math.PI / 180) *
+                         Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                const distance = R * c;
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = city;
+                }
+            }
+            
+            return [nearest, minDistance];
+        }
+        
+        class Impact {
+            constructor(lat, lon, size) {
+                this.lat = lat;
+                this.lon = lon;
+                this.size = size;
+                this.age = 0;
+                this.maxAge = 300;
+                
+                if (size > 100) {
+                    this.color = '#ff0000';
+                    this.radius = 15;
+                } else if (size > 20) {
+                    this.color = '#ffff00';
+                    this.radius = 10;
+                } else {
+                    this.color = '#00ff00';
+                    this.radius = 6;
+                }
+            }
+            
+            update() {
+                this.age++;
+            }
+            
+            isExpired() {
+                return this.age > this.maxAge;
+            }
+            
+            getOpacity() {
+                return Math.max(0, 1 - (this.age / this.maxAge));
+            }
+        }
+        
+        class Meteor {
+            constructor(targetLat, targetLon, size) {
+                this.targetLat = targetLat;
+                this.targetLon = targetLon;
+                this.size = size;
+                this.progress = 0;
+                this.speed = 0.015;
+                this.startLat = targetLat + 60;
+                this.startLon = targetLon - 80;
+                this.currentLat = this.startLat;
+                this.currentLon = this.startLon;
+                this.altitude = 1.5;
+            }
+            
+            update() {
+                this.progress += this.speed;
+                if (this.progress >= 1) return true;
+                
+                this.currentLat = this.startLat + (this.targetLat - this.startLat) * this.progress;
+                this.currentLon = this.startLon + (this.targetLon - this.startLon) * this.progress;
+                this.altitude = 1.5 * (1 - this.progress);
+                return false;
+            }
+            
+            draw(ctx, rotation) {
+                const pos = project(this.currentLat, this.currentLon, rotation);
+                if (!pos.visible) return;
+                
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const baseRadius = Math.min(canvas.width, canvas.height) * 0.35;
+                const altitudeOffset = this.altitude * baseRadius * 0.5;
+                const x = pos.x + (pos.x - centerX) * this.altitude * 0.3;
+                const y = pos.y - altitudeOffset;
+                
+                const trailLength = 50;
+                const gradient = ctx.createLinearGradient(x, y, x + trailLength * (1 - this.progress), y - trailLength * (1 - this.progress));
+                gradient.addColorStop(0, '#ff6600ff');
+                gradient.addColorStop(0.5, '#ff990088');
+                gradient.addColorStop(1, '#ffcc0000');
+                
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + trailLength * (1 - this.progress), y - trailLength * (1 - this.progress));
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 8 * (1 - this.progress * 0.5);
+                ctx.lineCap = 'round';
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 5 + this.size / 20, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, 20);
+                glowGradient.addColorStop(0, '#ff6600ff');
+                glowGradient.addColorStop(0.5, '#ff990088');
+                glowGradient.addColorStop(1, '#ffcc0000');
+                ctx.beginPath();
+                ctx.arc(x, y, 20, 0, Math.PI * 2);
+                ctx.fillStyle = glowGradient;
+                ctx.fill();
+            }
+        }
+        
+        let activeMeteor = null;
+        
+        function project(lat, lon, rotation) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.35;
+            
+            const adjustedLon = lon + rotation;
+            const latRad = lat * Math.PI / 180;
+            const lonRad = adjustedLon * Math.PI / 180;
+            
+            const x = radius * Math.cos(latRad) * Math.sin(lonRad);
+            const y = -radius * Math.sin(latRad);
+            const z = radius * Math.cos(latRad) * Math.cos(lonRad);
+            
+            return {x: centerX + x, y: centerY + y, z: z, visible: z > 0};
+        }
+        
+        function drawEarth() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.35;
+            
+            const gradient = ctx.createRadialGradient(centerX - radius * 0.3, centerY - radius * 0.3, 0, centerX, centerY, radius);
+            gradient.addColorStop(0, '#4a90e2');
+            gradient.addColorStop(0.7, '#2a5f9e');
+            gradient.addColorStop(1, '#0d2847');
+            
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            
+            for (let lat = -60; lat <= 60; lat += 30) {
+                ctx.beginPath();
+                for (let lon = -180; lon <= 180; lon += 5) {
+                    const pos = project(lat, lon, rotation);
+                    if (pos.visible) {
+                        if (lon === -180) ctx.moveTo(pos.x, pos.y);
+                        else ctx.lineTo(pos.x, pos.y);
+                    }
+                }
+                ctx.stroke();
+            }
+            
+            for (let lon = -180; lon <= 180; lon += 30) {
+                ctx.beginPath();
+                for (let lat = -90; lat <= 90; lat += 5) {
+                    const pos = project(lat, lon, rotation);
+                    if (pos.visible) {
+                        if (lat === -90) ctx.moveTo(pos.x, pos.y);
+                        else ctx.lineTo(pos.x, pos.y);
+                    }
+                }
+                ctx.stroke();
+            }
+        }
+        
+        function drawImpacts() {
+            impacts.forEach(impact => {
+                const pos = project(impact.lat, impact.lon, rotation);
+                if (!pos.visible) return;
+                
+                const opacity = impact.getOpacity();
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, impact.radius, 0, Math.PI * 2);
+                ctx.fillStyle = impact.color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
+                ctx.fill();
+                
+                if (impact.age < 60) {
+                    const shockRadius = impact.radius + (impact.age / 60) * 30;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, shockRadius, 0, Math.PI * 2);
+                    ctx.strokeStyle = impact.color + Math.floor((1 - impact.age / 60) * 128).toString(16).padStart(2, '0');
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                
+                const glowGradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, impact.radius * 2);
+                glowGradient.addColorStop(0, impact.color + '80');
+                glowGradient.addColorStop(1, impact.color + '00');
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, impact.radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = glowGradient;
+                ctx.fill();
+            });
+        }
+        
+        function animate() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (isRotating) {
+                const diff = targetRotation - rotation;
+                const normalizedDiff = ((diff + 540) % 360) - 180;
+                if (Math.abs(normalizedDiff) > 0.5) {
+                    rotation += normalizedDiff * 0.08;
+                } else {
+                    rotation = targetRotation;
+                    isRotating = false;
+                }
+            } else if (!stopRotation) {
+                rotation += 0.2;
+            }
+            
+            drawEarth();
+            
+            if (activeMeteor) {
+                activeMeteor.draw(ctx, rotation);
+                const impacted = activeMeteor.update();
+                if (impacted) {
+                    stopRotation = true;
+                    impacts.push(new Impact(activeMeteor.targetLat, activeMeteor.targetLon, activeMeteor.size));
+                    activeMeteor = null;
+                    setTimeout(() => { stopRotation = false; }, 5000);
+                }
+            }
+            
+            drawImpacts();
+            impacts.forEach(impact => impact.update());
+            impacts = impacts.filter(impact => !impact.isExpired());
+            document.getElementById('count').textContent = impacts.length;
+            requestAnimationFrame(animate);
+        }
+        
+        function calculateImpact(diameter, velocity, distance) {
+            const EARTH_DENSITY = 2700;
+            const TNT_EQUIVALENT_J = 4.184e15;
+            const MAX_DISTANCE_KM = 1e7;
+            const angle = 45;
+            const density = 3000;
+            
+            const radius = diameter / 2;
+            const velocityMs = velocity * 1000;
+            const angleRad = angle * Math.PI / 180;
+            
+            const mass = (4/3) * Math.PI * Math.pow(radius, 3) * density;
+            const energy = 0.5 * mass * Math.pow(velocityMs, 2) * Math.sin(angleRad);
+            const energyMt = energy / TNT_EQUIVALENT_J;
+            
+            const craterDiameter = 1.161 * (Math.pow(mass, 1/3) * Math.pow(velocityMs, 0.44)) / Math.pow(EARTH_DENSITY, 0.22);
+            const adjustedCrater = craterDiameter * Math.pow(Math.sin(angleRad), 0.33);
+            const damageRadius = (adjustedCrater / 1000) * 20;
+            
+            const proximityRisk = Math.min(100, Math.max(0, (MAX_DISTANCE_KM - distance) / 1e5));
+            
+            let impactRisk;
+            if (energyMt < 0.01) impactRisk = 5;
+            else if (energyMt < 1) impactRisk = Math.min(50, 20 + damageRadius);
+            else if (energyMt < 1000) impactRisk = Math.min(80, 50 + damageRadius * 0.5);
+            else impactRisk = Math.min(100, 80 + damageRadius * 0.1);
+            
+            const combinedRisk = proximityRisk * 0.4 + impactRisk * 0.6;
+            
+            let classification;
+            if (energyMt < 0.01) classification = "Small fireball - harmless airburst";
+            else if (energyMt < 1) classification = "Tunguska-scale regional event";
+            else if (energyMt < 1000) classification = "City to country-scale devastation";
+            else classification = "Global catastrophic impact";
+            
+            return {mass, energy, energyMt, craterDiameter: adjustedCrater, damageRadius, proximityRisk, impactRisk, combinedRisk, classification};
+        }
+        
+        function getMitigationStrategy(risk) {
+            if (risk < 20) {
+                return `<strong>LOW RISK - Airburst Alert</strong><br><br>This meteor will likely burn up in the atmosphere. Residents should be aware of potential sonic booms and minor debris.<br><br>ACTIONS: Issue public awareness, monitor trajectory, prepare emergency services, secure loose objects.`;
+            } else if (risk < 50) {
+                return `<strong>MODERATE RISK - Regional Evacuation</strong><br><br>Significant regional risk requiring evacuation and emergency response.<br><br>ACTIONS: Evacuate impact zone, establish shelters, deploy emergency teams, secure infrastructure, issue alerts.`;
+            } else if (risk < 80) {
+                return `<strong>HIGH RISK - National Emergency</strong><br><br>Catastrophic-scale impact requiring national emergency protocols.<br><br>ACTIONS: Declare emergency, mass evacuation, reinforce infrastructure, deploy military, stockpile supplies, international coordination.`;
+            } else {
+                return `<strong>EXTREME RISK - Global Catastrophe</strong><br><br>Extinction-level event with global consequences.<br><br>ACTIONS: Activate planetary defense, consider deflection missions, global evacuation, underground shelters, preserve knowledge and genetic diversity.`;
+            }
+        }
+        
+        function simulateCustomImpact() {
+            const diameter = parseFloat(document.getElementById('diameter').value);
+            const velocity = parseFloat(document.getElementById('velocity').value);
+            const distance = parseFloat(document.getElementById('distance').value);
+            const lat = parseFloat(document.getElementById('latitude').value);
+            const lon = parseFloat(document.getElementById('longitude').value);
+            
+            if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lon) || lon < -180 || lon > 180) {
+                alert('Invalid coordinates. Latitude: -90 to 90, Longitude: -180 to 180');
+                return;
+            }
+            
+            const results = calculateImpact(diameter, velocity, distance);
+            const [nearestCity, cityDistance] = findNearestCity(lat, lon);
+            const cityAffected = cityDistance <= results.damageRadius;
+            
+            document.getElementById('results').innerHTML = `
+                <h4>Impact Results:</h4>
+                <strong>Location:</strong> ${lat.toFixed(2)}, ${lon.toFixed(2)}<br>
+                <strong>Nearest City:</strong> ${nearestCity} (${cityDistance.toFixed(2)} km away)<br>
+                <strong>City Affected:</strong> ${cityAffected ? '[ALERT] YES - EVACUATE!' : 'No - Outside damage radius'}<br><br>
+                <strong>Mass:</strong> ${results.mass.toExponential(2)} kg<br>
+                <strong>Impact Energy:</strong> ${results.energyMt.toFixed(2)} Mt TNT<br>
+                <strong>Crater Diameter:</strong> ${results.craterDiameter.toFixed(2)} m<br>
+                <strong>Damage Radius:</strong> ${results.damageRadius.toFixed(2)} km<br>
+                <strong>Classification:</strong> ${results.classification}<br><br>
+                <strong>Proximity Risk:</strong> ${results.proximityRisk.toFixed(1)}/100<br>
+                <strong>Impact Risk:</strong> ${results.impactRisk.toFixed(1)}/100<br>
+                <strong>Combined Risk:</strong> ${results.combinedRisk.toFixed(1)}/100
+            `;
+            
+            document.getElementById('mitigation').innerHTML = getMitigationStrategy(results.combinedRisk);
+            targetRotation = -lon;
+            isRotating = true;
+            activeMeteor = new Meteor(lat, lon, diameter);
+        }
+        
+        function addRandomImpact() {
+            const lat = (Math.random() - 0.5) * 180;
+            const lon = (Math.random() - 0.5) * 360;
+            const size = Math.random() * 150;
+            impacts.push(new Impact(lat, lon, size));
+        }
+        
+        function clearImpacts() {
+            impacts = [];
+        }
+        
+        function simulateShower() {
+            for (let i = 0; i < 20; i++) {
+                setTimeout(() => addRandomImpact(), i * 100);
+            }
+        }
+        
+        for (let i = 0; i < 5; i++) {
+            addRandomImpact();
+        }
+        
+        animate();
+        
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.35;
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < radius) {
+                const lat = -Math.asin(dy / radius) * 180 / Math.PI;
+                const lon = Math.atan2(dx / radius, 1) * 180 / Math.PI - rotation;
+                const size = Math.random() * 150;
+                impacts.push(new Impact(lat, lon, size));
+            }
+        });
+    </script>
+</body>
+</html>
